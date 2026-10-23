@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Visage stylisé dans un cadre photo -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,30 h40 a4,4 0 0 1 4,4 v40 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-40 a4,4 0 0 1 4,-4 Z" />
+    <path
+        android:fillColor="#3F51B5"
+        android:pathData="M54,47 m-8,0 a8,8 0 1,1 16,0 a8,8 0 1,1 -16,0" />
+    <path
+        android:fillColor="#3F51B5"
+        android:pathData="M38,74 C38,63 46,58 54,58 C62,58 70,63 70,74 Z" />
+</vector>
