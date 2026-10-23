@@ -57,7 +57,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish "latest" release (push on main)
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -65,7 +65,7 @@ jobs:
           for i in 1 2 3 4 5; do
             if gh release create latest "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" \
               --title "Latest build" \
-              --notes "APK le plus récent — build automatique du push sur la branche principale." \
+              --notes "APK le plus récent (build automatique)." \
               --repo "${{ github.repository }}"; then
               break
             fi
