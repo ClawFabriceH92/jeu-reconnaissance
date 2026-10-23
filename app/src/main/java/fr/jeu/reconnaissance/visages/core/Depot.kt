@@ -7,7 +7,8 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.text.Normalizer
 
-data class RapportImport(val importees: Int, val sansPhoto: Int)
+/** [depuisPhotos] : ZIP sans liste.json, noms déduits des noms de fichiers. */
+data class RapportImport(val importees: Int, val sansPhoto: Int, val depuisPhotos: Boolean = false)
 
 /**
  * Stockage local sur l'appareil :
@@ -32,11 +33,21 @@ class Depot(private val racine: File) {
     fun importer(entree: InputStream): RapportImport {
         val tmp = File(racine, "import_tmp")
         val nouvelle = File(racine, "base_import")
+        val zip = File(racine, "import.zip")
         tmp.deleteRecursively()
         nouvelle.deleteRecursively()
         try {
-            val dossierListe = ZipPack.extraire(entree, tmp)
-            val lues = ListeJson.lire(File(dossierListe, ZipPack.LISTE).readText())
+            zip.outputStream().use { entree.copyTo(it) }
+            val extrait = ZipPack.extraire(zip, tmp)
+            val avecListe = ZipPack.trouverListe(extrait)
+            val dossierListe = avecListe ?: extrait
+            val lues = if (avecListe != null) {
+                ListeJson.lire(File(avecListe, ZipPack.LISTE).readText())
+            } else {
+                ZipPack.personnesDepuisPhotos(extrait).ifEmpty {
+                    throw PackInvalide("Ce fichier ne contient ni liste.json ni photos (ZIP valide ?)")
+                }
+            }
             val photos = File(nouvelle, ZipPack.PHOTOS).apply { mkdirs() }
             val noms = mutableSetOf<String>()
             val gardees = mutableListOf<Personne>()
@@ -62,8 +73,9 @@ class Depot(private val racine: File) {
             dossierBase.deleteRecursively()
             if (!nouvelle.renameTo(dossierBase)) nouvelle.copyRecursively(dossierBase, overwrite = true)
             enregistrerProgression(Progression())
-            return RapportImport(gardees.size, sansPhoto)
+            return RapportImport(gardees.size, sansPhoto, depuisPhotos = avecListe == null)
         } finally {
+            zip.delete()
             tmp.deleteRecursively()
             nouvelle.deleteRecursively()
         }

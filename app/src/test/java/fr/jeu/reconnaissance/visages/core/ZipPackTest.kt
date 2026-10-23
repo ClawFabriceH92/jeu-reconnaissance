@@ -146,4 +146,41 @@ class ZipPackTest {
         assertEquals(setOf("02"), depot.progression().connus)
         assertFalse(depot.fichierPhoto(m).exists())
     }
+
+    @Test
+    fun zipDePhotosSeules() {
+        val depot = Depot(tmp.newFolder("app"))
+        val r = depot.importer(
+            ByteArrayInputStream(
+                zip(
+                    "Mes photos/photo_01_Marie_Dupont.jpg" to byteArrayOf(1),
+                    "Mes photos/Jean-Pierre Martin Durand.PNG" to byteArrayOf(2),
+                    "Mes photos/Thumbs.db" to byteArrayOf(3),
+                    "Mes photos/notes.txt" to byteArrayOf(4),
+                    "IMG_20240101.jpg" to byteArrayOf(5),
+                )
+            )
+        )
+        assertEquals(RapportImport(importees = 3, sansPhoto = 0, depuisPhotos = true), r)
+        val personnes = depot.personnes()
+        assertEquals(
+            listOf("IMG_20240101" to "", "Jean-Pierre" to "Martin Durand", "Marie" to "Dupont"),
+            personnes.map { it.prenom to it.nom },
+        )
+        assertTrue(personnes.all { it.genre == Genre.INCONNU && depot.fichierPhoto(it).isFile })
+    }
+
+    @Test
+    fun nomsAccentuesZipWindows() {
+        // L'explorateur Windows encode les noms en CP850 sans le drapeau UTF-8.
+        val sortie = ByteArrayOutputStream()
+        ZipOutputStream(sortie, java.nio.charset.Charset.forName("IBM850")).use { z ->
+            z.putNextEntry(ZipEntry("photo_01_Hélène_Lefèvre.jpg"))
+            z.write(byteArrayOf(1))
+            z.closeEntry()
+        }
+        val depot = Depot(tmp.newFolder("app"))
+        depot.importer(ByteArrayInputStream(sortie.toByteArray()))
+        assertEquals("Hélène" to "Lefèvre", depot.personnes().single().let { it.prenom to it.nom })
+    }
 }

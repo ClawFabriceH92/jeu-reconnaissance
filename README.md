@@ -23,6 +23,12 @@ Toutes les données restent sur le téléphone ; aucun accès réseau n'est dema
 
 ## Format du ZIP
 
+**ZIP de photos seules** : accepté. Une personne est créée par image (tous dossiers confondus) ;
+prénom et nom sont tirés du nom du fichier (`photo_01_Marie_Dupont.jpg` → Marie / Dupont,
+`Jean-Pierre Martin.jpg` → Jean-Pierre / Martin). Le genre est à préciser dans « Voir tout ».
+
+**ZIP complet** (créé par « Exporter ZIP ») :
+
 ```
 liste.json
 photos/
@@ -63,4 +69,8 @@ Ouvrir le dossier dans Android Studio puis Run (▶), ou :
 La CI GitHub (`.github/workflows/build.yml`) lance les tests et construit l'APK à chaque push.
 La release est signée avec le keystore fourni par les secrets `RECONNAISSANCE_KEYSTORE_B64`,
 `RECONNAISSANCE_KEYSTORE_PASSWORD`, `RECONNAISSANCE_KEY_ALIAS`, `RECONNAISSANCE_KEY_PASSWORD` ;
-sans ces secrets, elle est signée avec la clé de debug (installable, mais pas publiable sur le Play Store).
+sans ces secrets, elle est signée avec la clé de debug du runner, qui change à chaque build :
+il faut alors désinstaller l'app avant d'installer un nouvel APK (et l'APK n'est pas publiable sur le Play Store).
+
+APK le plus récent : https://github.com/ClawFabriceH92/jeu-reconnaissance/releases/download/latest/reconnaissance.apk
+(publié par un lancement manuel du workflow, ou par un push sur la branche principale).

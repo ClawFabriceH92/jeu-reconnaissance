@@ -48,6 +48,7 @@ jobs:
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
           cp app/build/outputs/apk/release/app-release.apk "reconnaissance-v${VERSION}.apk"
+          cp app/build/outputs/apk/release/app-release.apk reconnaissance.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -63,7 +64,7 @@ jobs:
         run: |
           gh release delete latest --yes --repo "${{ github.repository }}" 2>/dev/null || true
           for i in 1 2 3 4 5; do
-            if gh release create latest "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" \
+            if gh release create latest "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" reconnaissance.apk \
               --title "Latest build" --target "${{ github.sha }}" \
               --notes "APK le plus récent (build automatique)." \
               --repo "${{ github.repository }}"; then

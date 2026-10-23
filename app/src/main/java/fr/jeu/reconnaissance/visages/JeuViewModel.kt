@@ -128,6 +128,7 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
         buildString {
             append("${rapport.importees} personne(s) importée(s)")
             if (rapport.sansPhoto > 0) append(" · ${rapport.sansPhoto} ignorée(s) : photo absente du ZIP")
+            if (rapport.depuisPhotos) append(" · noms tirés des noms de fichiers : vérifiez-les et précisez le genre dans « Voir tout »")
         }
     }
 

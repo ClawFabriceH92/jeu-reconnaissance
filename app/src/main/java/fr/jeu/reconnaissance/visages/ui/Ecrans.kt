@@ -186,7 +186,7 @@ private fun Accueil(vm: JeuViewModel) {
     ) {
         if (total == 0) {
             Text(
-                "La liste est vide.\nImportez un ZIP (liste.json + photos/) ou ajoutez des personnes.",
+                "La liste est vide.\nImportez un ZIP (photos seules, ou liste.json + photos/) ou ajoutez des personnes.",
                 style = MaterialTheme.typography.bodyLarge,
             )
         } else {
@@ -217,7 +217,8 @@ private fun Accueil(vm: JeuViewModel) {
             }
         }
         Text(
-            "Le ZIP contient liste.json et le dossier photos/. Importer remplace toute la liste actuelle " +
+            "Un ZIP de photos seules suffit : prénom et nom sont tirés des noms de fichiers " +
+                "(ex. photo_01_Marie_Dupont.jpg). L'export ajoute liste.json. Importer remplace toute la liste actuelle " +
                 "et réinitialise la progression.",
             style = MaterialTheme.typography.bodySmall,
         )
@@ -360,7 +361,7 @@ private fun Galerie(vm: JeuViewModel) {
                     progress = { if (total == 0) 0f else connus.toFloat() / total },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Touchez une photo pour la modifier ou la supprimer.", style = MaterialTheme.typography.bodySmall)
+                Text("Touchez une photo pour corriger le nom, le genre, ou la supprimer.", style = MaterialTheme.typography.bodySmall)
             }
         }
         items(vm.personnes, key = { it.id }) { p ->
@@ -368,13 +369,21 @@ private fun Galerie(vm: JeuViewModel) {
                 Photo(vm.fichierPhoto(p), Modifier.fillMaxWidth().aspectRatio(3f / 4f), taille = 450)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = p.id in vm.progression.connus, onCheckedChange = { vm.basculerConnu(p) })
-                    Text(
-                        p.nomComplet,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
+                    Column(Modifier.padding(end = 8.dp)) {
+                        Text(
+                            p.nomComplet,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (p.genre == Genre.INCONNU) {
+                            Text(
+                                "Genre à préciser",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
             }
         }
