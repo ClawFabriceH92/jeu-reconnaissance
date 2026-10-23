@@ -64,7 +64,7 @@ jobs:
           gh release delete latest --yes --repo "${{ github.repository }}" 2>/dev/null || true
           for i in 1 2 3 4 5; do
             if gh release create latest "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" \
-              --title "Latest build" \
+              --title "Latest build" --target "${{ github.sha }}" \
               --notes "APK le plus récent (build automatique)." \
               --repo "${{ github.repository }}"; then
               break
