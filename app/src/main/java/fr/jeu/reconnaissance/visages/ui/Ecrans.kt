@@ -1,6 +1,10 @@
 package fr.jeu.reconnaissance.visages.ui
 
+import android.Manifest
+import android.app.TimePickerDialog
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +44,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
@@ -50,6 +55,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -60,6 +67,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -87,12 +95,22 @@ import fr.jeu.reconnaissance.visages.Ecran
 import fr.jeu.reconnaissance.visages.Etape
 import fr.jeu.reconnaissance.visages.Images
 import fr.jeu.reconnaissance.visages.JeuViewModel
+import androidx.core.content.ContextCompat
+import fr.jeu.reconnaissance.visages.Sauvegarde
 import fr.jeu.reconnaissance.visages.core.Difficulte
+import fr.jeu.reconnaissance.visages.core.Frequence
+import fr.jeu.reconnaissance.visages.core.Parametres
 import fr.jeu.reconnaissance.visages.core.Genre
 import fr.jeu.reconnaissance.visages.core.Personne
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 private val TYPES_ZIP = arrayOf(
     "application/zip",
@@ -124,8 +142,16 @@ fun AppReconnaissance(vm: JeuViewModel) {
                             Ecran.JEU -> "Photo aléatoire"
                             Ecran.GALERIE -> "Voir tout"
                             Ecran.FICHE -> if (vm.fiche == null) "Ajouter une personne" else "Modifier"
+                            Ecran.PARAMETRES -> "Rappels et sauvegarde"
                         }
                     )
+                },
+                actions = {
+                    if (vm.ecran == Ecran.ACCUEIL) {
+                        IconButton(onClick = vm::ouvrirParametres) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Rappels et sauvegarde")
+                        }
+                    }
                 },
                 navigationIcon = {
                     if (vm.ecran != Ecran.ACCUEIL) {
@@ -144,6 +170,7 @@ fun AppReconnaissance(vm: JeuViewModel) {
                 Ecran.JEU -> EcranJeu(vm)
                 Ecran.GALERIE -> Galerie(vm)
                 Ecran.FICHE -> Fiche(vm)
+                Ecran.PARAMETRES -> EcranParametres(vm)
             }
         }
     }
@@ -189,6 +216,11 @@ private fun Accueil(vm: JeuViewModel) {
                 "La liste est vide.\nImportez un ZIP (photos seules, ou liste.json + photos/) ou ajoutez des personnes.",
                 style = MaterialTheme.typography.bodyLarge,
             )
+            Text(
+                "Pour restaurer une sauvegarde : Importer ZIP › Téléchargements › ${Sauvegarde.DOSSIER} › " +
+                    Sauvegarde.NOM.substringBefore(".zip") + " (le plus récent).",
+                style = MaterialTheme.typography.bodyMedium,
+            )
         } else {
             Text("$total personne(s) · $connus connue(s)", style = MaterialTheme.typography.titleMedium)
             LinearProgressIndicator(progress = { connus.toFloat() / total }, modifier = Modifier.fillMaxWidth())
@@ -202,6 +234,7 @@ private fun Accueil(vm: JeuViewModel) {
         BoutonAccueil("Photo aléatoire", Icons.Filled.Shuffle, actif = total >= 2, principal = true, onClick = vm::jouer)
         BoutonAccueil("Voir tout", Icons.Filled.GridView, actif = total > 0, onClick = vm::ouvrirGalerie)
         BoutonAccueil("Ajouter une personne", Icons.Filled.PersonAdd) { vm.ouvrirFiche(null) }
+        BoutonAccueil("Rappels et sauvegarde", Icons.Filled.Settings, onClick = vm::ouvrirParametres)
 
         Spacer(Modifier.height(8.dp))
         Text("Échange de données", style = MaterialTheme.typography.titleSmall)
@@ -218,8 +251,8 @@ private fun Accueil(vm: JeuViewModel) {
         }
         Text(
             "Un ZIP de photos seules suffit : prénom et nom sont tirés des noms de fichiers " +
-                "(ex. photo_01_Marie_Dupont.jpg). L'export ajoute liste.json. Importer remplace toute la liste actuelle " +
-                "et réinitialise la progression.",
+                "(ex. photo_01_Marie_Dupont.jpg). L'export contient aussi la liste, la progression et les réglages. " +
+                "Importer remplace toute la liste actuelle.",
             style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -229,7 +262,10 @@ private fun Accueil(vm: JeuViewModel) {
             onDismissRequest = { importEnAttente = null },
             title = { Text("Remplacer la liste ?") },
             text = {
-                Text("Les ${vm.personnes.size} personne(s) actuelles seront remplacées par le contenu du ZIP et la progression sera réinitialisée.")
+                Text(
+                    "Les ${vm.personnes.size} personne(s) actuelles seront remplacées par le contenu du ZIP. " +
+                        "Si c'est une sauvegarde, la progression et les réglages sont repris ; sinon la progression repart de zéro."
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -485,6 +521,104 @@ private fun Fiche(vm: JeuViewModel) {
                 }) { Text("Supprimer") }
             },
             dismissButton = { TextButton(onClick = { confirmerSuppression = false }) { Text("Annuler") } },
+        )
+    }
+}
+
+// ---------------------------------------------------------------- Rappels et sauvegarde
+
+private val FORMAT_RAPPEL = DateTimeFormatter.ofPattern("EEEE d MMMM 'à' HH:mm", Locale.FRENCH)
+private val FORMAT_SAUVEGARDE = DateTimeFormatter.ofPattern("d MMMM yyyy 'à' HH:mm", Locale.FRENCH)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EcranParametres(vm: JeuViewModel) {
+    val context = LocalContext.current
+    val p = vm.parametres
+    val permissionNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { accordee ->
+        if (!accordee) vm.message = "Notifications refusées : le rappel ne pourra pas s'afficher"
+    }
+    val changer = { n: Parametres ->
+        if (n.frequence != Frequence.AUCUNE && Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        vm.changerParametres(n)
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Rappel d'entraînement", style = MaterialTheme.typography.titleMedium)
+        Frequence.entries.forEach { f ->
+            Row(
+                Modifier.fillMaxWidth().clickable { changer(p.copy(frequence = f)) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = p.frequence == f, onClick = { changer(p.copy(frequence = f)) })
+                Text(f.libelle)
+            }
+        }
+        if (p.frequence == Frequence.HEBDOMADAIRE) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DayOfWeek.entries.forEach { j ->
+                    FilterChip(
+                        selected = p.jour == j,
+                        onClick = { changer(p.copy(jour = j)) },
+                        label = { Text(j.getDisplayName(TextStyle.SHORT, Locale.FRENCH)) },
+                    )
+                }
+            }
+        }
+        if (p.frequence != Frequence.AUCUNE) {
+            OutlinedButton(onClick = {
+                TimePickerDialog(context, { _, h, m -> changer(p.copy(heure = h, minute = m)) }, p.heure, p.minute, true).show()
+            }) {
+                Text("Heure : %02d:%02d".format(p.heure, p.minute))
+            }
+            vm.prochainRappel?.let {
+                Text("Prochain rappel : ${it.format(FORMAT_RAPPEL)}", style = MaterialTheme.typography.bodyMedium)
+            }
+            Text(
+                "Le rappel peut arriver avec quelques minutes de retard si le téléphone est en veille. " +
+                    "Toucher la notification lance directement une partie.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        Text("Sauvegarde", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Sauvegarde automatique")
+                Text(
+                    "Liste, photos, progression et réglages, enregistrés dans " +
+                        "Téléchargements/${Sauvegarde.DOSSIER}/${Sauvegarde.NOM} quand vous quittez l'app.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(checked = p.sauvegardeAuto, onCheckedChange = { vm.changerParametres(p.copy(sauvegardeAuto = it)) })
+        }
+        Text(
+            if (vm.derniereSauvegarde == 0L) {
+                "Aucune sauvegarde pour l'instant"
+            } else {
+                "Dernière sauvegarde : " +
+                    Instant.ofEpochMilli(vm.derniereSauvegarde).atZone(ZoneId.systemDefault()).format(FORMAT_SAUVEGARDE)
+            },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        FilledTonalButton(onClick = vm::sauvegarderMaintenant, enabled = vm.personnes.isNotEmpty()) {
+            Text("Sauvegarder maintenant")
+        }
+        Text(
+            "Si l'app doit être désinstallée puis réinstallée : « Importer ZIP » et choisir ce fichier " +
+                "(Téléchargements › ${Sauvegarde.DOSSIER}). Tout est restauré. Après une réinstallation, " +
+                "les nouvelles sauvegardes s'appellent « … (1).zip » : prenez la plus récente.",
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }

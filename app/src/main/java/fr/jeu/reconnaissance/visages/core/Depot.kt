@@ -7,20 +7,30 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.text.Normalizer
 
-/** [depuisPhotos] : ZIP sans liste.json, noms déduits des noms de fichiers. */
-data class RapportImport(val importees: Int, val sansPhoto: Int, val depuisPhotos: Boolean = false)
+/**
+ * [depuisPhotos] : ZIP sans liste.json, noms déduits des noms de fichiers.
+ * [progressionRestauree] : le ZIP était une sauvegarde complète (progression et réglages repris).
+ */
+data class RapportImport(
+    val importees: Int,
+    val sansPhoto: Int,
+    val depuisPhotos: Boolean = false,
+    val progressionRestauree: Boolean = false,
+)
 
 /**
  * Stockage local sur l'appareil :
  *   [racine]/base/liste.json
  *   [racine]/base/photos/…
  *   [racine]/progression.json
+ *   [racine]/parametres.json
  */
 class Depot(private val racine: File) {
     val dossierBase = File(racine, "base")
     private val fichierListe = File(dossierBase, ZipPack.LISTE)
     private val dossierPhotos = File(dossierBase, ZipPack.PHOTOS)
-    private val fichierProgression = File(racine, "progression.json")
+    private val fichierProgression = File(racine, ZipPack.PROGRESSION)
+    private val fichierParametres = File(racine, ZipPack.PARAMETRES)
 
     fun fichierPhoto(p: Personne) = File(dossierBase, p.photo)
 
@@ -28,7 +38,10 @@ class Depot(private val racine: File) {
     fun personnes(): List<Personne> =
         if (fichierListe.isFile) ListeJson.lire(fichierListe.readText()) else emptyList()
 
-    /** Remplace toute la base par le contenu du ZIP et réinitialise la progression. */
+    /**
+     * Remplace toute la base par le contenu du ZIP. La progression et les réglages sont repris
+     * s'ils sont dans le ZIP (sauvegarde), sinon la progression est réinitialisée.
+     */
     @Synchronized
     fun importer(entree: InputStream): RapportImport {
         val tmp = File(racine, "import_tmp")
@@ -72,8 +85,18 @@ class Depot(private val racine: File) {
 
             dossierBase.deleteRecursively()
             if (!nouvelle.renameTo(dossierBase)) nouvelle.copyRecursively(dossierBase, overwrite = true)
-            enregistrerProgression(Progression())
-            return RapportImport(gardees.size, sansPhoto, depuisPhotos = avecListe == null)
+            val ids = gardees.map { it.id }.toSet()
+            val progression = avecListe?.let { File(it, ZipPack.PROGRESSION) }?.takeIf { it.isFile }
+                ?.let { progressionDepuisJson(it.readText()) }
+            enregistrerProgression(progression?.let { it.copy(connus = it.connus intersect ids) } ?: Progression())
+            avecListe?.let { File(it, ZipPack.PARAMETRES) }?.takeIf { it.isFile }
+                ?.let { enregistrerParametres(Parametres.depuisJson(it.readText())) }
+            return RapportImport(
+                gardees.size,
+                sansPhoto,
+                depuisPhotos = avecListe == null,
+                progressionRestauree = progression != null,
+            )
         } finally {
             zip.delete()
             tmp.deleteRecursively()
@@ -83,7 +106,11 @@ class Depot(private val racine: File) {
 
     @Synchronized
     fun exporter(sortie: OutputStream) {
-        ZipPack.ecrire(personnes(), dossierBase, sortie)
+        val annexes = mapOf(
+            ZipPack.PROGRESSION to progressionVersJson(progression()),
+            ZipPack.PARAMETRES to parametres().versJson(),
+        )
+        ZipPack.ecrire(personnes(), dossierBase, sortie, annexes)
     }
 
     /** Ajoute une personne ; [ecrirePhoto] écrit l'image JPEG. */
@@ -132,28 +159,21 @@ class Depot(private val racine: File) {
     }
 
     @Synchronized
-    fun progression(): Progression {
-        if (!fichierProgression.isFile) return Progression()
-        return try {
-            val o = JSONObject(fichierProgression.readText())
-            val connus = o.optJSONArray("connus") ?: JSONArray()
-            Progression(
-                connus = (0 until connus.length()).map { connus.getString(it) }.toSet(),
-                niveau = o.optInt("niveau", 1).coerceIn(1, Difficulte.NIVEAU_MAX),
-                serie = o.optInt("serie", 0).coerceAtLeast(0),
-            )
-        } catch (e: org.json.JSONException) {
-            Progression()
-        }
-    }
+    fun progression(): Progression =
+        if (fichierProgression.isFile) progressionDepuisJson(fichierProgression.readText()) else Progression()
 
     @Synchronized
     fun enregistrerProgression(p: Progression) {
-        val o = JSONObject()
-            .put("connus", JSONArray(p.connus.sorted()))
-            .put("niveau", p.niveau)
-            .put("serie", p.serie)
-        ecrireAtomique(fichierProgression, o.toString())
+        ecrireAtomique(fichierProgression, progressionVersJson(p))
+    }
+
+    @Synchronized
+    fun parametres(): Parametres =
+        if (fichierParametres.isFile) Parametres.depuisJson(fichierParametres.readText()) else Parametres()
+
+    @Synchronized
+    fun enregistrerParametres(p: Parametres) {
+        ecrireAtomique(fichierParametres, p.versJson())
     }
 
     private fun ecrireListe(liste: List<Personne>) {
@@ -188,6 +208,24 @@ class Depot(private val racine: File) {
         liste.map { it.photo.substringAfterLast('/').lowercase() }.toMutableSet()
 
     companion object {
+        fun progressionDepuisJson(texte: String): Progression = try {
+            val o = JSONObject(texte)
+            val connus = o.optJSONArray("connus") ?: JSONArray()
+            Progression(
+                connus = (0 until connus.length()).map { connus.getString(it) }.toSet(),
+                niveau = o.optInt("niveau", 1).coerceIn(1, Difficulte.NIVEAU_MAX),
+                serie = o.optInt("serie", 0).coerceAtLeast(0),
+            )
+        } catch (e: org.json.JSONException) {
+            Progression()
+        }
+
+        fun progressionVersJson(p: Progression): String = JSONObject()
+            .put("connus", JSONArray(p.connus.sorted()))
+            .put("niveau", p.niveau)
+            .put("serie", p.serie)
+            .toString(2)
+
         /** « photo_01_Marie_Dupont.jpg », unique dans [pris] (comparaison sans casse). */
         fun nomPhoto(p: Personne, extension: String, pris: MutableSet<String>): String {
             val ext = extension.lowercase().ifBlank { "jpg" }

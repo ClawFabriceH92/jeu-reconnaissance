@@ -60,6 +60,8 @@ class ZipPackTest {
         assertTrue(personnes.all { depot.fichierPhoto(it).isFile })
 
         depot.enregistrerProgression(Progression(connus = setOf("1"), niveau = 3))
+        val reglages = Parametres(Frequence.HEBDOMADAIRE, 7, 30, java.time.DayOfWeek.FRIDAY, sauvegardeAuto = false)
+        depot.enregistrerParametres(reglages)
 
         val exporte = ByteArrayOutputStream().also { depot.exporter(it) }.toByteArray()
         val entrees = mutableMapOf<String, ByteArray>()
@@ -70,18 +72,26 @@ class ZipPackTest {
             }
         }
         assertEquals(
-            setOf("liste.json", "photos/photo_1_Marie_Dupont.jpg", "photos/photo_2_Eric_Martin.jpg"),
+            setOf(
+                "liste.json", "progression.json", "parametres.json",
+                "photos/photo_1_Marie_Dupont.jpg", "photos/photo_2_Eric_Martin.jpg",
+            ),
             entrees.keys,
         )
         assertEquals(listOf<Byte>(1, 2, 3), entrees["photos/photo_1_Marie_Dupont.jpg"]!!.toList())
 
+        // Restauration d'une sauvegarde : photos, liste, progression et réglages.
         val autre = Depot(tmp.newFolder("autre"))
-        autre.importer(ByteArrayInputStream(exporte))
+        val r = autre.importer(ByteArrayInputStream(exporte))
+        assertTrue(r.progressionRestauree)
         assertEquals(personnes, autre.personnes())
+        assertEquals(Progression(connus = setOf("1"), niveau = 3), autre.progression())
+        assertEquals(reglages, autre.parametres())
 
-        // Un nouvel import réinitialise la progression.
-        depot.importer(ByteArrayInputStream(exporte))
+        // Un ZIP sans progression.json la réinitialise.
+        depot.importer(ByteArrayInputStream(zip("liste.json" to listePc, "photos/photo_01_Marie.jpg" to byteArrayOf(1))))
         assertEquals(Progression(), depot.progression())
+        assertEquals(reglages, depot.parametres())
     }
 
     @Test

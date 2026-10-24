@@ -20,6 +20,8 @@ class PackInvalide(message: String) : Exception(message)
 object ZipPack {
     const val LISTE = "liste.json"
     const val PHOTOS = "photos"
+    const val PROGRESSION = "progression.json"
+    const val PARAMETRES = "parametres.json"
 
     val EXTENSIONS_IMAGES = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
 
@@ -123,12 +125,17 @@ object ZipPack {
             .firstOrNull { it.isFile && it.path.startsWith(r) && estImage(it.name) }
     }
 
-    /** Écrit le pack : liste.json puis photos/… ([base] est le dossier qui contient photos/). */
-    fun ecrire(personnes: List<Personne>, base: File, sortie: OutputStream) {
+    /**
+     * Écrit le pack : liste.json, [annexes] (nom → contenu, ex. progression.json) puis photos/…
+     * ([base] est le dossier qui contient photos/).
+     */
+    fun ecrire(personnes: List<Personne>, base: File, sortie: OutputStream, annexes: Map<String, String> = emptyMap()) {
         ZipOutputStream(sortie).use { zip ->
-            zip.putNextEntry(ZipEntry(LISTE))
-            zip.write(ListeJson.ecrire(personnes).toByteArray(Charsets.UTF_8))
-            zip.closeEntry()
+            (mapOf(LISTE to ListeJson.ecrire(personnes)) + annexes).forEach { (nom, texte) ->
+                zip.putNextEntry(ZipEntry(nom))
+                zip.write(texte.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
             zip.putNextEntry(ZipEntry("$PHOTOS/"))
             zip.closeEntry()
             personnes.forEach { p ->

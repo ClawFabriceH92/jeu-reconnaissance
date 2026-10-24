@@ -13,16 +13,20 @@ import fr.jeu.reconnaissance.visages.core.Difficulte
 import fr.jeu.reconnaissance.visages.core.GenerateurQuestions
 import fr.jeu.reconnaissance.visages.core.Genre
 import fr.jeu.reconnaissance.visages.core.PackInvalide
+import fr.jeu.reconnaissance.visages.core.Parametres
 import fr.jeu.reconnaissance.visages.core.Personne
 import fr.jeu.reconnaissance.visages.core.Progression
 import fr.jeu.reconnaissance.visages.core.Question
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
+import java.time.LocalDateTime
 
-enum class Ecran { ACCUEIL, JEU, GALERIE, FICHE }
+enum class Ecran { ACCUEIL, JEU, GALERIE, FICHE, PARAMETRES }
 
 enum class Etape { PRENOM, NOM, RESULTAT }
 
@@ -38,6 +42,9 @@ data class Partie(
 }
 
 private class Refus(message: String) : Exception(message)
+
+/** Portée indépendante de l'écran : la sauvegarde automatique continue si l'activité se ferme. */
+private val porteeSauvegarde = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 class JeuViewModel(app: Application) : AndroidViewModel(app) {
     private val depot = Depot(app.filesDir)
@@ -58,9 +65,25 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
     var enCours by mutableStateOf<String?>(null)
         private set
     var message by mutableStateOf<String?>(null)
+    var parametres by mutableStateOf(Parametres())
+        private set
+    var prochainRappel by mutableStateOf<LocalDateTime?>(null)
+        private set
+    var derniereSauvegarde by mutableStateOf(0L)
+        private set
+
+    /** Données modifiées depuis la dernière sauvegarde automatique. */
+    @Volatile
+    private var modifie = false
+    /** Ouverture depuis la notification : lancer le jeu dès que la liste est chargée. */
+    private var jouerApresChargement = false
 
     init {
         travail(null) { null }
+    }
+
+    fun ouvertureDepuisRappel() {
+        if (personnes.size >= 2) jouer() else jouerApresChargement = true
     }
 
     fun fichierPhoto(p: Personne): File = depot.fichierPhoto(p)
@@ -71,6 +94,10 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
 
     fun ouvrirGalerie() {
         ecran = Ecran.GALERIE
+    }
+
+    fun ouvrirParametres() {
+        ecran = Ecran.PARAMETRES
     }
 
     fun ouvrirFiche(p: Personne?) {
@@ -117,7 +144,43 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun enregistrer(p: Progression) {
         progression = p
+        modifie = true
         viewModelScope.launch(Dispatchers.IO) { depot.enregistrerProgression(p) }
+    }
+
+    // --- Réglages : rappel et sauvegarde ---
+
+    fun changerParametres(p: Parametres) {
+        parametres = p
+        modifie = true
+        viewModelScope.launch {
+            prochainRappel = withContext(Dispatchers.IO) {
+                depot.enregistrerParametres(p)
+                Rappels.planifier(getApplication<Application>(), p)
+            }
+        }
+    }
+
+    fun sauvegarderMaintenant() = travail("Sauvegarde…") {
+        if (!Sauvegarde.ecrire(getApplication<Application>(), depot)) {
+            throw Refus("Sauvegarde impossible (liste vide ou stockage inaccessible)")
+        }
+        modifie = false
+        "Sauvegarde enregistrée dans Téléchargements/${Sauvegarde.DOSSIER}"
+    }
+
+    /** Appelé quand l'app passe en arrière-plan. */
+    fun sauvegardeAutomatique() {
+        if (!modifie || !parametres.sauvegardeAuto || personnes.isEmpty()) return
+        modifie = false
+        val app = getApplication<Application>()
+        porteeSauvegarde.launch {
+            try {
+                if (!Sauvegarde.ecrire(app, depot)) modifie = true
+            } catch (e: Exception) {
+                modifie = true
+            }
+        }
     }
 
     // --- Import / export ZIP ---
@@ -128,6 +191,7 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
         buildString {
             append("${rapport.importees} personne(s) importée(s)")
             if (rapport.sansPhoto > 0) append(" · ${rapport.sansPhoto} ignorée(s) : photo absente du ZIP")
+            if (rapport.progressionRestauree) append(" · progression et réglages restaurés")
             if (rapport.depuisPhotos) append(" · noms tirés des noms de fichiers : vérifiez-les et précisez le genre dans « Voir tout »")
         }
     }
@@ -189,19 +253,39 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
                     "Erreur : ${e.message ?: e.javaClass.simpleName}"
                 }
                 val etat = try {
-                    depot.personnes() to depot.progression()
+                    val reglages = depot.parametres()
+                    Etat(depot.personnes(), depot.progression(), reglages, Rappels.planifier(getApplication<Application>(), reglages))
                 } catch (e: Exception) {
                     null
                 }
                 Triple(m, etat, ok)
             }
-            resultat.second?.let { (l, p) ->
-                personnes = l
-                progression = p
+            resultat.second?.let {
+                personnes = it.personnes
+                progression = it.progression
+                parametres = it.parametres
+                prochainRappel = it.prochainRappel
             }
+            derniereSauvegarde = Sauvegarde.derniere(getApplication<Application>())
+            // Données présentes mais jamais sauvegardées (ex. première ouverture après mise à jour).
+            if (derniereSauvegarde == 0L && personnes.isNotEmpty()) modifie = true
             enCours = null
             message = resultat.first
-            if (resultat.third) apres()
+            if (resultat.third) {
+                if (libelle != null && libelle != "Sauvegarde…") modifie = true
+                apres()
+            }
+            if (jouerApresChargement && personnes.size >= 2) {
+                jouerApresChargement = false
+                jouer()
+            }
         }
     }
 }
+
+private data class Etat(
+    val personnes: List<Personne>,
+    val progression: Progression,
+    val parametres: Parametres,
+    val prochainRappel: LocalDateTime?,
+)

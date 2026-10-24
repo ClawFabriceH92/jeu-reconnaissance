@@ -15,11 +15,22 @@ Kotlin · Jetpack Compose · minSdk 26 · identifiant `fr.jeu.reconnaissance.vis
 - **Voir tout** : galerie avec progression (cases à cocher modifiables).
   Toucher une photo permet de la modifier ou de la supprimer.
 - **Ajouter une personne** : photo de la galerie, prénom, nom, genre.
-- **Importer ZIP** : remplace toute la liste par le contenu du ZIP et réinitialise la progression.
-- **Exporter ZIP** : enregistre le pack (Drive, Téléchargements…) pour sauvegarde ou transfert.
+- **Importer ZIP** : remplace toute la liste par le contenu du ZIP. Si le ZIP est une sauvegarde
+  (il contient `progression.json` / `parametres.json`), progression et réglages sont repris ;
+  sinon la progression repart de zéro.
+- **Exporter ZIP** : enregistre le pack complet (liste, photos, progression, réglages).
+- **Sauvegarde automatique** : à chaque sortie de l'app (si quelque chose a changé), le pack complet est écrit dans
+  `Téléchargements/Reconnaissance/reconnaissance-sauvegarde.zip`. Ce dossier survit à une désinstallation :
+  pour tout récupérer, « Importer ZIP » puis choisir ce fichier.
+- **Rappels d'entraînement** (⚙ en haut de l'accueil) : désactivé, tous les jours, du lundi au vendredi
+  ou une fois par semaine (jour au choix), à l'heure choisie. Toucher la notification lance une partie.
 - **Partager ZIP** : envoie le pack par une autre application (mail, messagerie…).
 
 Toutes les données restent sur le téléphone ; aucun accès réseau n'est demandé.
+
+**Mises à jour** : Android conserve les données de l'app lors d'une mise à jour seulement si le nouvel APK
+est signé avec la même clé. Tant que les secrets de signature (ci-dessous) ne sont pas configurés, chaque build
+a une clé différente : il faut désinstaller puis réinstaller, et restaurer la sauvegarde automatique.
 
 ## Format du ZIP
 
