@@ -7,7 +7,15 @@ Kotlin · Jetpack Compose · minSdk 26 · identifiant `fr.jeu.reconnaissance.vis
 
 ## Fonctionnalités
 
-- **Photo aléatoire** : prénom puis nom. Les propositions sont du même genre que la personne.
+- **Photo aléatoire** : prénom puis nom. Les prénoms proposés sont du même sexe que la personne
+  (photo de femme → uniquement des prénoms de femmes de la liste). Pour une personne dont le genre
+  n'est pas renseigné, les propositions sont mélangées : l'accueil propose « Préciser le genre ».
+- **Genre déduit du prénom** : à l'import et à l'ajout, le genre est rempli automatiquement pour les prénoms
+  non mixtes (≥ 95 % des naissances d'un même sexe, ≥ 20 naissances) d'après le
+  [Fichier des prénoms de l'Insee](https://www.insee.fr/fr/statistiques/7633685) (naissances en France 1900-2022).
+  Les prénoms mixtes (Camille, Dominique, Claude…) restent à préciser. La liste
+  `app/src/main/assets/prenoms_genre.tsv` est générée par `scripts/generer_prenoms.py`
+  (workflow « Générer la liste des prénoms »).
   On tire en priorité les personnes pas encore connues.
 - **Difficulté** : 3 propositions au niveau 1, jusqu'à 7 au niveau 5.
   3 bonnes réponses d'affilée font monter d'un niveau, une erreur fait descendre d'un niveau.

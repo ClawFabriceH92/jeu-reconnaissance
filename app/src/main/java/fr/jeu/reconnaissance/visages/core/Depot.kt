@@ -149,6 +149,26 @@ class Depot(private val racine: File) {
         return resultat
     }
 
+    /** Renseigne le genre des personnes « à préciser » quand le prénom l'indique ; renvoie le nombre de fiches complétées. */
+    @Synchronized
+    fun completerGenres(genres: GenresPrenoms): Int {
+        val liste = personnes()
+        var n = 0
+        val maj = liste.map { p ->
+            if (p.genre != Genre.INCONNU) return@map p
+            val g = genres.genre(p.prenom)
+            if (g == Genre.INCONNU) p else p.copy(genre = g).also { n++ }
+        }
+        if (n > 0) ecrireListe(maj)
+        return n
+    }
+
+    /** Change seulement le genre (sans toucher à la photo). */
+    @Synchronized
+    fun changerGenre(id: String, genre: Genre) {
+        ecrireListe(personnes().map { if (it.id == id) it.copy(genre = genre) else it })
+    }
+
     @Synchronized
     fun supprimer(id: String) {
         val liste = personnes()

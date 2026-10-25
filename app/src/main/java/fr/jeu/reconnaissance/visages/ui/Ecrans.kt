@@ -143,6 +143,7 @@ fun AppReconnaissance(vm: JeuViewModel) {
                             Ecran.GALERIE -> "Voir tout"
                             Ecran.FICHE -> if (vm.fiche == null) "Ajouter une personne" else "Modifier"
                             Ecran.PARAMETRES -> "Rappels et sauvegarde"
+                            Ecran.GENRES -> "Préciser le genre"
                         }
                     )
                 },
@@ -171,6 +172,7 @@ fun AppReconnaissance(vm: JeuViewModel) {
                 Ecran.GALERIE -> Galerie(vm)
                 Ecran.FICHE -> Fiche(vm)
                 Ecran.PARAMETRES -> EcranParametres(vm)
+                Ecran.GENRES -> EcranGenres(vm)
             }
         }
     }
@@ -231,6 +233,18 @@ private fun Accueil(vm: JeuViewModel) {
         }
         Spacer(Modifier.height(8.dp))
 
+        val aPreciser = vm.personnes.count { it.genre == Genre.INCONNU }
+        if (aPreciser > 0) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "$aPreciser photo(s) sans genre : pour elles, les prénoms proposés mélangent femmes et hommes.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = vm::ouvrirGenres) { Text("Préciser le genre ($aPreciser)") }
+                }
+            }
+        }
         BoutonAccueil("Photo aléatoire", Icons.Filled.Shuffle, actif = total >= 2, principal = true, onClick = vm::jouer)
         BoutonAccueil("Voir tout", Icons.Filled.GridView, actif = total > 0, onClick = vm::ouvrirGalerie)
         BoutonAccueil("Ajouter une personne", Icons.Filled.PersonAdd) { vm.ouvrirFiche(null) }
@@ -328,6 +342,13 @@ private fun EcranJeu(vm: JeuViewModel) {
         }
         if (partie.etape != Etape.PRENOM && q.choixNoms.isNotEmpty()) {
             Choix("Nom ?", q.choixNoms, q.personne.nom, partie.nomChoisi, vm::repondre)
+        }
+        if (partie.etape == Etape.RESULTAT && q.personne.genre == Genre.INCONNU) {
+            Text("Genre de cette personne (pour ne plus mélanger les prénoms) :", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.definirGenre(q.personne, Genre.FEMME) }) { Text("Femme") }
+                OutlinedButton(onClick = { vm.definirGenre(q.personne, Genre.HOMME) }) { Text("Homme") }
+            }
         }
         if (partie.etape == Etape.RESULTAT) {
             Text(
@@ -522,6 +543,40 @@ private fun Fiche(vm: JeuViewModel) {
             },
             dismissButton = { TextButton(onClick = { confirmerSuppression = false }) { Text("Annuler") } },
         )
+    }
+}
+
+// ---------------------------------------------------------------- Préciser le genre
+
+@Composable
+private fun EcranGenres(vm: JeuViewModel) {
+    var passees by remember { mutableStateOf(setOf<String>()) }
+    val restantes = vm.personnes.filter { it.genre == Genre.INCONNU }
+    val p = restantes.firstOrNull { it.id !in passees } ?: restantes.firstOrNull()
+    if (p == null) {
+        Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Toutes les personnes ont un genre. Les prénoms proposés seront toujours du même sexe que la photo.")
+            Button(onClick = vm::retour) { Text("Retour à l'accueil") }
+        }
+        return
+    }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("${restantes.size} restante(s)", style = MaterialTheme.typography.labelLarge)
+        Photo(
+            vm.fichierPhoto(p),
+            Modifier.widthIn(max = 320.dp).fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(16.dp)),
+            taille = 900,
+        )
+        Text(p.nomComplet, style = MaterialTheme.typography.titleLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { vm.definirGenre(p, Genre.FEMME) }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Femme") }
+            Button(onClick = { vm.definirGenre(p, Genre.HOMME) }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Homme") }
+        }
+        TextButton(onClick = { passees = if (p.id in passees) setOf(p.id) else passees + p.id }) { Text("Plus tard") }
     }
 }
 

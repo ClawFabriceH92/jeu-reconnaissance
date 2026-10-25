@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import fr.jeu.reconnaissance.visages.core.Depot
 import fr.jeu.reconnaissance.visages.core.Difficulte
 import fr.jeu.reconnaissance.visages.core.GenerateurQuestions
+import fr.jeu.reconnaissance.visages.core.GenresPrenoms
 import fr.jeu.reconnaissance.visages.core.Genre
 import fr.jeu.reconnaissance.visages.core.PackInvalide
 import fr.jeu.reconnaissance.visages.core.Parametres
@@ -26,7 +27,7 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-enum class Ecran { ACCUEIL, JEU, GALERIE, FICHE, PARAMETRES }
+enum class Ecran { ACCUEIL, JEU, GALERIE, FICHE, PARAMETRES, GENRES }
 
 enum class Etape { PRENOM, NOM, RESULTAT }
 
@@ -49,6 +50,14 @@ private val porteeSauvegarde = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 class JeuViewModel(app: Application) : AndroidViewModel(app) {
     private val depot = Depot(app.filesDir)
     private val generateur = GenerateurQuestions()
+    /** Prénoms non mixtes d'après l'Insee (lu à la première utilisation, hors thread UI). */
+    private val genres: GenresPrenoms by lazy {
+        try {
+            app.assets.open("prenoms_genre.tsv").bufferedReader().use { GenresPrenoms.lire(it.readText()) }
+        } catch (e: Exception) {
+            GenresPrenoms.VIDE
+        }
+    }
 
     var personnes by mutableStateOf<List<Personne>>(emptyList())
         private set
@@ -79,7 +88,10 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
     private var jouerApresChargement = false
 
     init {
-        travail(null) { null }
+        travail(null) {
+            if (depot.completerGenres(genres) > 0) modifie = true
+            null
+        }
     }
 
     fun ouvertureDepuisRappel() {
@@ -98,6 +110,25 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
 
     fun ouvrirParametres() {
         ecran = Ecran.PARAMETRES
+    }
+
+    fun ouvrirGenres() {
+        ecran = Ecran.GENRES
+    }
+
+    /** Indique le genre d'une personne (écran « Préciser le genre » ou pendant le jeu). */
+    fun definirGenre(p: Personne, genre: Genre) {
+        partie?.let { pa ->
+            if (pa.question.personne.id == p.id) {
+                partie = pa.copy(question = pa.question.copy(personne = pa.question.personne.copy(genre = genre)))
+            }
+        }
+        personnes = personnes.map { if (it.id == p.id) it.copy(genre = genre) else it }
+        travail(null) {
+            depot.changerGenre(p.id, genre)
+            modifie = true
+            null
+        }
     }
 
     fun ouvrirFiche(p: Personne?) {
@@ -188,11 +219,15 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
     fun importer(uri: Uri) = travail("Import du ZIP…") {
         val rapport = getApplication<Application>().contentResolver.openInputStream(uri)?.use { depot.importer(it) }
             ?: throw Refus("Impossible d'ouvrir le fichier")
+        val genresTrouves = depot.completerGenres(genres)
+        val aPreciser = depot.personnes().count { it.genre == Genre.INCONNU }
         buildString {
             append("${rapport.importees} personne(s) importée(s)")
+            if (genresTrouves > 0) append(" · genre déduit du prénom pour $genresTrouves")
+            if (aPreciser > 0) append(" · $aPreciser genre(s) à préciser")
             if (rapport.sansPhoto > 0) append(" · ${rapport.sansPhoto} ignorée(s) : photo absente du ZIP")
             if (rapport.progressionRestauree) append(" · progression et réglages restaurés")
-            if (rapport.depuisPhotos) append(" · noms tirés des noms de fichiers : vérifiez-les et précisez le genre dans « Voir tout »")
+            if (rapport.depuisPhotos) append(" · noms tirés des noms de fichiers : vérifiez-les dans « Voir tout »")
         }
     }
 
@@ -222,11 +257,13 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
         travail("Enregistrement…", apres = { ecran = if (existante != null) Ecran.GALERIE else Ecran.ACCUEIL }) {
             val app = getApplication<Application>()
             val ecrire: ((java.io.OutputStream) -> Unit)? = photo?.let { u -> { out: java.io.OutputStream -> Images.versJpeg(app, u, out) } }
+            // Genre non choisi : on le déduit du prénom quand c'est possible.
+            val g = if (genre == Genre.INCONNU) genres.genre(prenom) else genre
             if (existante == null) {
-                depot.ajouter(prenom, nom, genre, ecrire ?: throw Refus("Choisissez une photo"))
+                depot.ajouter(prenom, nom, g, ecrire ?: throw Refus("Choisissez une photo"))
                 "${listOf(prenom, nom).filter { it.isNotBlank() }.joinToString(" ")} ajouté(e)"
             } else {
-                depot.modifier(existante.copy(prenom = prenom, nom = nom, genre = genre), ecrire)
+                depot.modifier(existante.copy(prenom = prenom, nom = nom, genre = g), ecrire)
                 "Fiche enregistrée"
             }
         }
