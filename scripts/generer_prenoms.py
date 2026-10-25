@@ -9,6 +9,7 @@ restent « genre à préciser » dans l'app.
 """
 import csv
 import io
+import os
 import re
 import sys
 import unicodedata
@@ -94,6 +95,7 @@ def main():
         elif h / total >= PART_MIN:
             gardes.append((prenom, "H"))
     gardes.sort()
+    os.makedirs(os.path.dirname(SORTIE), exist_ok=True)
     with open(SORTIE, "w", encoding="utf-8", newline="\n") as out:
         out.write(f"# Source : Insee, Fichier des prénoms ({url}). Part d'un sexe >= {PART_MIN}, >= {MIN_TOTAL} naissances.\n")
         for prenom, g in gardes:
