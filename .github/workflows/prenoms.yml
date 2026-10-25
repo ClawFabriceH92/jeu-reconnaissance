@@ -1,0 +1,30 @@
+name: Générer la liste des prénoms (Insee)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL directe du ZIP national CSV de l'Insee (facultatif)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  generer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Générer prenoms_genre.tsv
+        run: python3 scripts/generer_prenoms.py ${{ github.event.inputs.url }}
+
+      - name: Committer le fichier
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/prenoms_genre.tsv
+          git diff --cached --quiet && { echo "Aucun changement"; exit 0; }
+          git commit -m "Liste des prénoms genrés (source : Insee, Fichier des prénoms)"
+          git push
