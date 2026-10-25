@@ -200,6 +200,27 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
         "Sauvegarde enregistrée dans Téléchargements/${Sauvegarde.DOSSIER}"
     }
 
+    /**
+     * Sauvegarde d'abord, puis passe l'APK à l'installeur (comme notes-de-frais) :
+     * une mise à jour est justement le moment où les données sont en jeu.
+     */
+    fun sauvegarderPuisInstaller(installer: () -> Unit) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            enCours = "Sauvegarde avant mise à jour…"
+            withContext(Dispatchers.IO) {
+                try {
+                    if (Sauvegarde.ecrire(app, depot)) modifie = false
+                } catch (e: Exception) {
+                    // L'installation reste possible ; la sauvegarde automatique précédente existe.
+                }
+            }
+            derniereSauvegarde = Sauvegarde.derniere(app)
+            enCours = null
+            installer()
+        }
+    }
+
     /** Appelé quand l'app passe en arrière-plan. */
     fun sauvegardeAutomatique() {
         if (!modifie || !parametres.sauvegardeAuto || personnes.isEmpty()) return

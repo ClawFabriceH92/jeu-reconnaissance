@@ -34,11 +34,24 @@ Kotlin · Jetpack Compose · minSdk 26 · identifiant `fr.jeu.reconnaissance.vis
   ou une fois par semaine (jour au choix), à l'heure choisie. Toucher la notification lance une partie.
 - **Partager ZIP** : envoie le pack par une autre application (mail, messagerie…).
 
-Toutes les données restent sur le téléphone ; aucun accès réseau n'est demandé.
+Les données restent sur le téléphone. Le seul accès réseau sert à la mise à jour.
 
-**Mises à jour** : Android conserve les données de l'app lors d'une mise à jour seulement si le nouvel APK
-est signé avec la même clé. Tant que les secrets de signature (ci-dessous) ne sont pas configurés, chaque build
-a une clé différente : il faut désinstaller puis réinstaller, et restaurer la sauvegarde automatique.
+## Mise à jour automatique
+
+Même système que [notes-de-frais](https://github.com/ClawFabriceH92/notes-de-frais) :
+
+- À l'ouverture (puis toutes les 30 min, au plus une requête par heure), l'app lit
+  `version.json` sur la release `latest` (repli : API GitHub). Le dépôt doit rester **public**.
+- Nouvelle version : en Wi-Fi elle est téléchargée d'avance, sinon bouton « Télécharger ».
+  « Installer » fait d'abord une sauvegarde complète, puis lance l'installeur Android.
+- Réglages › « Vérifier les mises à jour » pour forcer la vérification.
+- La CI publie `app-release.apk`, `reconnaissance.apk` et `version.json` sur la release `latest`.
+
+**Clé de signature** : Android n'installe une mise à jour par-dessus (en gardant les données) que si
+l'APK est signé avec la même clé. Lancer une fois `scripts/push-secrets.sh` (crée la clé dans
+`~/.secrets/keystores-android/` et publie les secrets `RECONNAISSANCE_*`). Sans ces secrets, chaque build
+a une clé jetable : l'app détecte la différence et explique la marche à suivre (désinstaller, installer,
+restaurer la sauvegarde).
 
 ## Format du ZIP
 
@@ -87,7 +100,8 @@ Ouvrir le dossier dans Android Studio puis Run (▶), ou :
 
 La CI GitHub (`.github/workflows/build.yml`) lance les tests et construit l'APK à chaque push.
 La release est signée avec le keystore fourni par les secrets `RECONNAISSANCE_KEYSTORE_B64`,
-`RECONNAISSANCE_KEYSTORE_PASSWORD`, `RECONNAISSANCE_KEY_ALIAS`, `RECONNAISSANCE_KEY_PASSWORD` ;
+`RECONNAISSANCE_KEYSTORE_PASSWORD`, `RECONNAISSANCE_KEY_ALIAS`, `RECONNAISSANCE_KEY_PASSWORD`
+(publiés par `scripts/push-secrets.sh`) ;
 sans ces secrets, elle est signée avec la clé de debug du runner, qui change à chaque build :
 il faut alors désinstaller l'app avant d'installer un nouvel APK (et l'APK n'est pas publiable sur le Play Store).
 

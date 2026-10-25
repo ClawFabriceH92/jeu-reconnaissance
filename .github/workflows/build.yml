@@ -39,49 +39,70 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
+      # Comme notes-de-frais : "0 tests found" sort aussi en 0, ce qui ferait un faux vert.
+      - name: Assert unit tests actually ran
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          files = glob.glob('app/build/test-results/**/*.xml', recursive=True)
+          total = sum(int(ET.parse(f).getroot().get('tests', 0)) for f in files)
+          print(f'{len(files)} classe(s) de test, {total} test(s) unitaires')
+          if total < 20:
+              sys.exit(f'Trop peu de tests exécutés ({total})')
+          PY
+
       - name: Build signed release APK
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Rename APK with version
-        id: version
+      - name: Verify signature
         run: |
-          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
-          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
-          cp app/build/outputs/apk/release/app-release.apk "reconnaissance-v${VERSION}.apk"
-          cp app/build/outputs/apk/release/app-release.apk reconnaissance.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | tail -1)
+          "$BT/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | head -5
+          if [ -z "$RECONNAISSANCE_KEYSTORE_B64" ]; then
+            echo "::warning::Secrets de signature absents : APK signé avec une clé de debug jetable, la mise à jour par-dessus échouera. Lancer scripts/push-secrets.sh."
+          fi
+
+      - name: Version
+        id: version
+        run: echo "VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: reconnaissance-apk
-          path: reconnaissance-v*.apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
-      - name: Publish "latest" release (push on main)
+      # Release roulante "latest" lue par la mise à jour intégrée (même schéma que notes-de-frais) :
+      # app-release.apk + version.json, plus reconnaissance.apk pour le lien direct.
+      - name: Publish "latest" release
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.version.outputs.VERSION }}
         run: |
-          gh release delete latest --yes --repo "${{ github.repository }}" 2>/dev/null || true
+          APK=app/build/outputs/apk/release/app-release.apk
+          cp "$APK" "$RUNNER_TEMP/reconnaissance.apk"
+          # Créée une fois, puis les fichiers sont remplacés sur place : le lien ne renvoie jamais 404.
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --target "${{ github.sha }}" --title "Reconnaissance v${VER}" --notes "Build automatique - v${VER}"
+          gh release edit latest --title "Reconnaissance v${VER}" --notes "Build automatique - v${VER}"
+          for f in "$APK" "$RUNNER_TEMP/reconnaissance.apk"; do
+            for i in 1 2 3 4 5; do
+              gh release upload latest "$f" --clobber && break
+              sleep 10
+            done
+          done
+          # Publié après l'APK : le manifeste n'annonce jamais un build dont le fichier n'est pas en ligne.
+          printf '{"version":"%s","notes":"Build automatique - v%s","apk":"%s"}\n' \
+            "$VER" "$VER" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/app-release.apk" \
+            > "$RUNNER_TEMP/version.json"
           for i in 1 2 3 4 5; do
-            if gh release create latest "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" reconnaissance.apk \
-              --title "Latest build" --target "${{ github.sha }}" \
-              --notes "APK le plus récent (build automatique)." \
-              --repo "${{ github.repository }}"; then
-              break
-            fi
-            echo "Échec création release (tentative $i/5), nouvel essai dans 10 s…"
+            gh release upload latest "$RUNNER_TEMP/version.json" --clobber && break
             sleep 10
           done
-
-      - name: Publish versioned release (tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Build automatique — APK $GITHUB_REF_NAME." \
-            --repo "${{ github.repository }}" \
-            || gh release upload "$GITHUB_REF_NAME" "reconnaissance-v${{ steps.version.outputs.VERSION }}.apk" \
-               --clobber --repo "${{ github.repository }}"
+          # Un ancien APK laissé dans la release roulante ferait installer une vieille version.
+          gh release view latest --json assets -q '.assets[].name' \
+            | grep -vx -e 'app-release.apk' -e 'reconnaissance.apk' -e 'version.json' \
+            | while read -r stale; do gh release delete-asset latest "$stale" -y || true; done

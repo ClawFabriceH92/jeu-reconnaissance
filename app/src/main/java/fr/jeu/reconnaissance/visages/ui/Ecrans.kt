@@ -73,6 +73,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -96,7 +97,9 @@ import fr.jeu.reconnaissance.visages.Etape
 import fr.jeu.reconnaissance.visages.Images
 import fr.jeu.reconnaissance.visages.JeuViewModel
 import androidx.core.content.ContextCompat
+import fr.jeu.reconnaissance.visages.BuildConfig
 import fr.jeu.reconnaissance.visages.Sauvegarde
+import fr.jeu.reconnaissance.visages.update.UpdateManager
 import fr.jeu.reconnaissance.visages.core.Difficulte
 import fr.jeu.reconnaissance.visages.core.Frequence
 import fr.jeu.reconnaissance.visages.core.Parametres
@@ -131,6 +134,18 @@ fun AppReconnaissance(vm: JeuViewModel) {
         }
     }
     BackHandler(enabled = vm.ecran != Ecran.ACCUEIL) { vm.retour() }
+
+    val context = LocalContext.current
+    val etatMaj by UpdateManager.state.collectAsState()
+    // Comme notes-de-frais : une vérification au lancement, puis toutes les 30 minutes tant que
+    // l'app reste ouverte ; UpdateManager garde son plancher d'une requête par heure.
+    val contexteApp = context.applicationContext
+    LaunchedEffect(Unit) {
+        while (true) {
+            UpdateManager.checkAtLaunch(contexteApp, "")
+            kotlinx.coroutines.delay(30 * 60_000L)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -177,6 +192,20 @@ fun AppReconnaissance(vm: JeuViewModel) {
         }
     }
 
+    DialogueMiseAJour(
+        etat = etatMaj,
+        onTelecharger = { UpdateManager.download(context) },
+        onInstaller = { vm.sauvegarderPuisInstaller { UpdateManager.install(context) } },
+        onAutoriser = { UpdateManager.openInstallSettings(context) },
+        onOuvrirLien = {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(LIEN_APK)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            UpdateManager.dismiss()
+        },
+        onFermer = { UpdateManager.dismiss() },
+    )
+
     vm.enCours?.let { libelle ->
         Dialog(onDismissRequest = {}) {
             Card {
@@ -187,6 +216,87 @@ fun AppReconnaissance(vm: JeuViewModel) {
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------- Mise à jour
+
+private const val LIEN_APK = "https://github.com/ClawFabriceH92/jeu-reconnaissance/releases/download/latest/reconnaissance.apk"
+
+@Composable
+private fun DialogueMiseAJour(
+    etat: UpdateManager.State,
+    onTelecharger: () -> Unit,
+    onInstaller: () -> Unit,
+    onAutoriser: () -> Unit,
+    onOuvrirLien: () -> Unit,
+    onFermer: () -> Unit,
+) {
+    when (etat) {
+        is UpdateManager.State.Available -> AlertDialog(
+            onDismissRequest = onFermer,
+            title = { Text("Version ${etat.version} disponible") },
+            text = { Text(etat.notes.ifBlank { "Une nouvelle version est prête." }) },
+            confirmButton = { TextButton(onClick = onTelecharger) { Text("Télécharger") } },
+            dismissButton = { TextButton(onClick = onFermer) { Text("Plus tard") } },
+        )
+
+        is UpdateManager.State.Downloading -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Téléchargement…") },
+            text = {
+                Column {
+                    Text("${(etat.progress * 100).toInt()} %")
+                    LinearProgressIndicator(progress = { etat.progress }, modifier = Modifier.padding(top = 8.dp))
+                }
+            },
+            confirmButton = {},
+        )
+
+        is UpdateManager.State.ReadyToInstall -> AlertDialog(
+            onDismissRequest = onFermer,
+            title = { Text("Prêt à installer") },
+            text = {
+                Text(
+                    "La version ${etat.version} est téléchargée. Une sauvegarde complète (liste, photos, " +
+                        "progression, réglages) est faite dans Téléchargements/${Sauvegarde.DOSSIER} avant l'installation."
+                )
+            },
+            confirmButton = { TextButton(onClick = onInstaller) { Text("Installer") } },
+            dismissButton = { TextButton(onClick = onFermer) { Text("Plus tard") } },
+        )
+
+        is UpdateManager.State.SignatureDifferente -> AlertDialog(
+            onDismissRequest = onFermer,
+            title = { Text("Installation par-dessus impossible") },
+            text = {
+                Text(
+                    "La version ${etat.version} est signée avec une autre clé que l'app installée : Android refuserait " +
+                        "la mise à jour. La sauvegarde vient d'être faite. Désinstallez l'app, installez la nouvelle version " +
+                        "depuis le lien, puis « Importer ZIP » › Téléchargements › ${Sauvegarde.DOSSIER}. " +
+                        "Ce n'est nécessaire qu'une fois : les versions suivantes s'installeront par-dessus."
+                )
+            },
+            confirmButton = { TextButton(onClick = onOuvrirLien) { Text("Ouvrir le lien") } },
+            dismissButton = { TextButton(onClick = onFermer) { Text("Fermer") } },
+        )
+
+        is UpdateManager.State.UpToDate -> AlertDialog(
+            onDismissRequest = onFermer,
+            title = { Text("À jour") },
+            text = { Text("Version installée : ${etat.version}") },
+            confirmButton = { TextButton(onClick = onFermer) { Text("OK") } },
+        )
+
+        is UpdateManager.State.Failed -> AlertDialog(
+            onDismissRequest = onFermer,
+            title = { Text("Vérification impossible") },
+            text = { Text(etat.detail ?: "GitHub n'a pas répondu.") },
+            confirmButton = { TextButton(onClick = onFermer) { Text("OK") } },
+            dismissButton = { TextButton(onClick = onAutoriser) { Text("Autoriser l'installation") } },
+        )
+
+        UpdateManager.State.Idle -> Unit
     }
 }
 
@@ -641,6 +751,18 @@ private fun EcranParametres(vm: JeuViewModel) {
                     "Toucher la notification lance directement une partie.",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        Text("Mises à jour", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Version installée : ${BuildConfig.VERSION_NAME}. L'app vérifie GitHub à l'ouverture ; en Wi-Fi, " +
+                "la nouvelle version est téléchargée d'avance et il ne reste qu'à toucher « Installer ».",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        FilledTonalButton(onClick = { UpdateManager.checkNow(context.applicationContext) }) {
+            Text("Vérifier les mises à jour")
         }
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

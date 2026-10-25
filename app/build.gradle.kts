@@ -1,5 +1,6 @@
 import java.io.File
 import java.util.Base64
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -7,19 +8,44 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Keystore de release : secret CI (RECONNAISSANCE_KEYSTORE_B64) ou sauvegarde locale.
-// Sans keystore, la release est signée avec la clé de debug (installable, mais pas pour le Play Store).
+/**
+ * La clé de signature doit être la MÊME à chaque build, sinon l'installation par-dessus
+ * échoue et la mise à jour intégrée ne sert à rien (même principe que notes-de-frais).
+ * CI : secrets RECONNAISSANCE_KEYSTORE_B64 / _KEYSTORE_PASSWORD / _KEY_ALIAS / _KEY_PASSWORD
+ * (publiés par scripts/push-secrets.sh). En local : ~/.secrets/keystores-android/.
+ * Sans clé, la release est signée avec la clé de debug du poste (installable, pas pour le Play Store).
+ */
+val dossiersSecrets = listOf(
+    File(System.getProperty("user.home"), ".secrets/keystores-android"),
+    File("/root/.secrets/keystores-android"),
+)
+
+fun secretFromFiles(key: String): String? {
+    for (dossier in dossiersSecrets) {
+        val file = File(dossier, "reconnaissance-keystore.env")
+        if (!file.exists()) continue
+        val props = Properties()
+        file.inputStream().use { props.load(it) }
+        val value = props.getProperty(key) ?: props.getProperty(key.replaceFirst("RECONNAISSANCE_", ""))
+        if (!value.isNullOrBlank()) return value
+    }
+    return null
+}
+
+val storePasswordValue: String? = System.getenv("RECONNAISSANCE_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+    ?: secretFromFiles("RECONNAISSANCE_KEYSTORE_PASSWORD") ?: secretFromFiles("STORE_PASSWORD")
+val keyAliasValue: String = System.getenv("RECONNAISSANCE_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    ?: secretFromFiles("KEY_ALIAS") ?: "reconnaissance"
+val keyPasswordValue: String? = System.getenv("RECONNAISSANCE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    ?: storePasswordValue
+
 fun releaseKeystore(): File? {
     System.getenv("RECONNAISSANCE_KEYSTORE_B64")?.takeIf { it.isNotBlank() }?.let { b64 ->
-        val tmp = File(System.getenv("RUNNER_TEMP") ?: "/tmp", "reconnaissance-release.keystore")
+        val tmp = File(System.getenv("RUNNER_TEMP") ?: System.getProperty("java.io.tmpdir"), "reconnaissance-release.keystore")
         tmp.writeBytes(Base64.getDecoder().decode(b64))
         return tmp
     }
-    val candidates = listOf(
-        File(System.getProperty("user.home"), ".secrets/keystores-android/reconnaissance-release.keystore"),
-        File("/root/.secrets/keystores-android/reconnaissance-release.keystore"),
-    )
-    return candidates.firstOrNull { it.exists() }
+    return dossiersSecrets.map { File(it, "reconnaissance-release.keystore") }.firstOrNull { it.exists() }
 }
 
 android {
@@ -30,20 +56,18 @@ android {
         applicationId = "fr.jeu.reconnaissance.visages"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.3.0"
     }
 
     val ks = releaseKeystore()
     signingConfigs {
-        if (ks != null) {
+        if (ks != null && storePasswordValue != null) {
             create("release") {
                 storeFile = ks
-                storePassword = System.getenv("RECONNAISSANCE_KEYSTORE_PASSWORD") ?: "CHANGE_ME"
-                keyAlias = System.getenv("RECONNAISSANCE_KEY_ALIAS") ?: "reconnaissance"
-                keyPassword = System.getenv("RECONNAISSANCE_KEY_PASSWORD")
-                    ?: System.getenv("RECONNAISSANCE_KEYSTORE_PASSWORD")
-                    ?: "CHANGE_ME"
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
             }
         }
     }
@@ -69,6 +93,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -100,6 +125,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Tests (org.json n'est qu'un stub dans les tests JVM d'Android)
     testImplementation("junit:junit:4.13.2")
