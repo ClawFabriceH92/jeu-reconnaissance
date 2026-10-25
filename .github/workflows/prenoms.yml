@@ -1,6 +1,10 @@
 name: Générer la liste des prénoms (Insee)
 
 on:
+  push:
+    paths:
+      - scripts/generer_prenoms.py
+      - .github/workflows/prenoms.yml
   workflow_dispatch:
     inputs:
       url:
