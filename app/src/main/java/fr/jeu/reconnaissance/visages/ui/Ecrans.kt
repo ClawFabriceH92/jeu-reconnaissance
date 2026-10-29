@@ -2,7 +2,9 @@ package fr.jeu.reconnaissance.visages.ui
 
 import android.Manifest
 import android.app.TimePickerDialog
+import android.content.Context
 import android.content.Intent
+import android.provider.DocumentsContract
 import android.content.pm.PackageManager
 import android.os.Build
 import android.net.Uri
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
@@ -126,6 +129,18 @@ private val TYPES_ZIP = arrayOf(
     "multipart/x-zip",
     "application/octet-stream",
 )
+
+/** Sélecteur de fichier qui s'ouvre directement dans Téléchargements/Reconnaissance. */
+private class OuvrirSauvegarde : ActivityResultContracts.OpenDocument() {
+    override fun createIntent(context: Context, input: Array<String>): Intent =
+        super.createIntent(context, input).putExtra(
+            DocumentsContract.EXTRA_INITIAL_URI,
+            DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:${android.os.Environment.DIRECTORY_DOWNLOADS}/${Sauvegarde.DOSSIER}",
+            ),
+        )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -338,6 +353,9 @@ private fun Accueil(vm: JeuViewModel) {
             if (vm.personnes.isEmpty()) vm.importer(uri) else importEnAttente = uri
         }
     }
+    val restaurer = rememberLauncherForActivityResult(OuvrirSauvegarde()) { uri ->
+        if (uri != null) vm.importer(uri)
+    }
     val creerZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) vm.exporter(uri)
     }
@@ -354,11 +372,25 @@ private fun Accueil(vm: JeuViewModel) {
                 "La liste est vide.\nImportez un ZIP (photos seules, ou liste.json + photos/) ou ajoutez des personnes.",
                 style = MaterialTheme.typography.bodyLarge,
             )
-            Text(
-                "Pour restaurer une sauvegarde : Importer ZIP › Téléchargements › ${Sauvegarde.DOSSIER} › " +
-                    Sauvegarde.NOM.substringBefore(".zip") + " (le plus récent).",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Vous venez de réinstaller l'app ?", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Vos photos, la liste, la progression et les réglages sont dans la sauvegarde " +
+                            "(Téléchargements › ${Sauvegarde.DOSSIER}). Choisissez le fichier " +
+                            "« ${Sauvegarde.NOM.substringBefore(".zip")} » le plus récent.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        onClick = { restaurer.launch(TYPES_ZIP) },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        Icon(Icons.Filled.Restore, contentDescription = null)
+                        Spacer(Modifier.size(12.dp))
+                        Text("Restaurer ma sauvegarde")
+                    }
+                }
+            }
         } else {
             Text("$total personne(s) · $connus connue(s)", style = MaterialTheme.typography.titleMedium)
             LinearProgressIndicator(progress = { connus.toFloat() / total }, modifier = Modifier.fillMaxWidth())
