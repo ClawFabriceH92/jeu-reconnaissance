@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        vm.enregistrerEntrainement()
         vm.sauvegardeAutomatique()
     }
 

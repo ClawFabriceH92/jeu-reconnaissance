@@ -18,6 +18,8 @@ data class Parametres(
     val minute: Int = 0,
     val jour: DayOfWeek = DayOfWeek.MONDAY,
     val sauvegardeAuto: Boolean = true,
+    /** Objectif de l'entraînement quotidien, en minutes de jeu. */
+    val minutesParJour: Int = 10,
 ) {
     /** Prochaine date de rappel strictement après [maintenant], ou null si désactivé. */
     fun prochainRappel(maintenant: LocalDateTime): LocalDateTime? {
@@ -43,6 +45,7 @@ data class Parametres(
         .put("minute", minute)
         .put("jour", jour.name)
         .put("sauvegardeAuto", sauvegardeAuto)
+        .put("minutesParJour", minutesParJour)
         .toString(2)
 
     companion object {
@@ -54,6 +57,7 @@ data class Parametres(
                 minute = o.optInt("minute", 0).coerceIn(0, 59),
                 jour = DayOfWeek.entries.firstOrNull { it.name == o.optString("jour") } ?: DayOfWeek.MONDAY,
                 sauvegardeAuto = o.optBoolean("sauvegardeAuto", true),
+                minutesParJour = o.optInt("minutesParJour", 10).coerceIn(1, 120),
             )
         } catch (e: org.json.JSONException) {
             Parametres()

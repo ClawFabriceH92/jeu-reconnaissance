@@ -22,6 +22,7 @@ object ZipPack {
     const val PHOTOS = "photos"
     const val PROGRESSION = "progression.json"
     const val PARAMETRES = "parametres.json"
+    const val ENTRAINEMENT = "entrainement.json"
 
     val EXTENSIONS_IMAGES = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
 

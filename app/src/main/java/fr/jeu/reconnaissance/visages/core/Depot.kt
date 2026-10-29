@@ -24,6 +24,7 @@ data class RapportImport(
  *   [racine]/base/photos/…
  *   [racine]/progression.json
  *   [racine]/parametres.json
+ *   [racine]/entrainement.json
  */
 class Depot(private val racine: File) {
     val dossierBase = File(racine, "base")
@@ -31,6 +32,7 @@ class Depot(private val racine: File) {
     private val dossierPhotos = File(dossierBase, ZipPack.PHOTOS)
     private val fichierProgression = File(racine, ZipPack.PROGRESSION)
     private val fichierParametres = File(racine, ZipPack.PARAMETRES)
+    private val fichierEntrainement = File(racine, ZipPack.ENTRAINEMENT)
 
     fun fichierPhoto(p: Personne) = File(dossierBase, p.photo)
 
@@ -91,6 +93,8 @@ class Depot(private val racine: File) {
             enregistrerProgression(progression?.let { it.copy(connus = it.connus intersect ids) } ?: Progression())
             avecListe?.let { File(it, ZipPack.PARAMETRES) }?.takeIf { it.isFile }
                 ?.let { enregistrerParametres(Parametres.depuisJson(it.readText())) }
+            avecListe?.let { File(it, ZipPack.ENTRAINEMENT) }?.takeIf { it.isFile }
+                ?.let { enregistrerEntrainement(Entrainement.depuisJson(it.readText())) }
             return RapportImport(
                 gardees.size,
                 sansPhoto,
@@ -109,6 +113,7 @@ class Depot(private val racine: File) {
         val annexes = mapOf(
             ZipPack.PROGRESSION to progressionVersJson(progression()),
             ZipPack.PARAMETRES to parametres().versJson(),
+            ZipPack.ENTRAINEMENT to entrainement().versJson(),
         )
         ZipPack.ecrire(personnes(), dossierBase, sortie, annexes)
     }
@@ -194,6 +199,15 @@ class Depot(private val racine: File) {
     @Synchronized
     fun enregistrerParametres(p: Parametres) {
         ecrireAtomique(fichierParametres, p.versJson())
+    }
+
+    @Synchronized
+    fun entrainement(): Entrainement =
+        if (fichierEntrainement.isFile) Entrainement.depuisJson(fichierEntrainement.readText()) else Entrainement()
+
+    @Synchronized
+    fun enregistrerEntrainement(e: Entrainement) {
+        ecrireAtomique(fichierEntrainement, e.versJson())
     }
 
     private fun ecrireListe(liste: List<Personne>) {

@@ -7,7 +7,11 @@ Kotlin · Jetpack Compose · minSdk 26 · identifiant `fr.jeu.reconnaissance.vis
 
 ## Fonctionnalités
 
-- **Photo aléatoire** : prénom puis nom. Les prénoms proposés sont du même sexe que la personne
+- **Entraînement du jour** (10 min par défaut, 5 à 30 au choix) : partie avec chrono qui ne compte
+  que le temps de jeu actif (pause après 60 s sans réponse ou app en arrière-plan). Objectif atteint →
+  bravo + bilan, et série de jours consécutifs. Rappel quotidien par notification (un toucher sur la carte
+  de l'accueil l'active) ; il ne s'affiche pas si l'entraînement du jour est déjà fait, et le toucher lance la séance.
+- **Photo aléatoire (libre)** : prénom puis nom, sans chrono. Les prénoms proposés sont du même sexe que la personne
   (photo de femme → uniquement des prénoms de femmes de la liste). Pour une personne dont le genre
   n'est pas renseigné, les propositions sont mélangées : l'accueil propose « Préciser le genre ».
 - **Genre déduit du prénom** : à l'import et à l'ajout, le genre est rempli automatiquement pour les prénoms

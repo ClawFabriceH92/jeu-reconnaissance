@@ -73,7 +73,7 @@ class ZipPackTest {
         }
         assertEquals(
             setOf(
-                "liste.json", "progression.json", "parametres.json",
+                "liste.json", "progression.json", "parametres.json", "entrainement.json",
                 "photos/photo_1_Marie_Dupont.jpg", "photos/photo_2_Eric_Martin.jpg",
             ),
             entrees.keys,

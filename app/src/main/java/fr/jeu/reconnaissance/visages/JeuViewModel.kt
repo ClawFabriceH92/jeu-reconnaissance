@@ -10,6 +10,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.jeu.reconnaissance.visages.core.Depot
 import fr.jeu.reconnaissance.visages.core.Difficulte
+import fr.jeu.reconnaissance.visages.core.Entrainement
+import fr.jeu.reconnaissance.visages.core.Frequence
 import fr.jeu.reconnaissance.visages.core.GenerateurQuestions
 import fr.jeu.reconnaissance.visages.core.GenresPrenoms
 import fr.jeu.reconnaissance.visages.core.Genre
@@ -81,6 +83,17 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
     var derniereSauvegarde by mutableStateOf(0L)
         private set
 
+    /** Temps et réponses du jour, jours où l'objectif a été atteint. */
+    var entrainement by mutableStateOf(Entrainement())
+        private set
+    /** Partie lancée en mode « Entraînement du jour » (chrono affiché). */
+    var seance by mutableStateOf(false)
+        private set
+    /** L'objectif vient d'être atteint pendant la partie : afficher le bravo une fois. */
+    var objectifAtteint by mutableStateOf(false)
+    private var derniereAction = 0L
+    private var ticsNonEnregistres = 0
+
     /** Données modifiées depuis la dernière sauvegarde automatique. */
     @Volatile
     private var modifie = false
@@ -95,7 +108,7 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun ouvertureDepuisRappel() {
-        if (personnes.size >= 2) jouer() else jouerApresChargement = true
+        if (personnes.size >= 2) commencerEntrainement() else jouerApresChargement = true
     }
 
     fun fichierPhoto(p: Personne): File = depot.fichierPhoto(p)
@@ -137,17 +150,61 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun retour() {
+        if (ecran == Ecran.JEU) {
+            enregistrerEntrainement()
+            seance = false
+        }
         ecran = if (ecran == Ecran.FICHE && fiche != null) Ecran.GALERIE else Ecran.ACCUEIL
     }
 
     // --- Jeu ---
 
     fun jouer() {
+        seance = false
         ecran = Ecran.JEU
         nouvelleQuestion()
     }
 
+    // --- Entraînement du jour ---
+
+    fun commencerEntrainement() {
+        seance = true
+        ecran = Ecran.JEU
+        nouvelleQuestion()
+    }
+
+    /** Secondes sans réponse au-delà desquelles le chrono se met en pause. */
+    val pauseApres = 60
+
+    fun enPause() = System.currentTimeMillis() - derniereAction > pauseApres * 1000L
+
+    /** Appelé chaque seconde tant que l'écran de jeu est visible. Ne compte que le temps de jeu actif. */
+    fun tic() {
+        if (enPause()) return
+        val aujourdhui = LocalDate.now()
+        val avant = entrainement.faitLe(aujourdhui)
+        entrainement = entrainement.ajouterTemps(aujourdhui, 1, parametres.minutesParJour)
+        if (!avant && entrainement.faitLe(aujourdhui)) {
+            objectifAtteint = true
+            enregistrerEntrainement()
+        } else if (++ticsNonEnregistres >= 15) {
+            enregistrerEntrainement()
+        }
+    }
+
+    fun enregistrerEntrainement() {
+        ticsNonEnregistres = 0
+        val e = entrainement
+        modifie = true
+        viewModelScope.launch(Dispatchers.IO) { depot.enregistrerEntrainement(e) }
+    }
+
+    fun activerRappelQuotidien() {
+        changerParametres(parametres.copy(frequence = Frequence.QUOTIDIENNE))
+    }
+
     fun nouvelleQuestion() {
+        derniereAction = System.currentTimeMillis()
         val q = generateur.suivante(personnes, progression, partie?.question?.personne?.id)
         partie = q?.let { Partie(it, if (it.choixPrenoms.isNotEmpty()) Etape.PRENOM else Etape.NOM) }
     }
@@ -163,7 +220,9 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
             Etape.RESULTAT -> return
         }
         partie = suite
+        derniereAction = System.currentTimeMillis()
         if (suite.etape == Etape.RESULTAT) {
+            entrainement = entrainement.ajouterReponse(LocalDate.now(), suite.reussi)
             enregistrer(Difficulte.apresReponse(progression, suite.question.personne.id, suite.reussi))
         }
     }
@@ -312,7 +371,10 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val etat = try {
                     val reglages = depot.parametres()
-                    Etat(depot.personnes(), depot.progression(), reglages, Rappels.planifier(getApplication<Application>(), reglages))
+                    Etat(
+                        depot.personnes(), depot.progression(), reglages,
+                        Rappels.planifier(getApplication<Application>(), reglages), depot.entrainement(),
+                    )
                 } catch (e: Exception) {
                     null
                 }
@@ -323,6 +385,8 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
                 progression = it.progression
                 parametres = it.parametres
                 prochainRappel = it.prochainRappel
+                // Pendant une partie, le compteur en mémoire est plus récent que le fichier.
+                if (ecran != Ecran.JEU) entrainement = it.entrainement
             }
             derniereSauvegarde = Sauvegarde.derniere(getApplication<Application>())
             // Données présentes mais jamais sauvegardées (ex. première ouverture après mise à jour).
@@ -335,7 +399,7 @@ class JeuViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (jouerApresChargement && personnes.size >= 2) {
                 jouerApresChargement = false
-                jouer()
+                commencerEntrainement()
             }
         }
     }
@@ -346,4 +410,5 @@ private data class Etat(
     val progression: Progression,
     val parametres: Parametres,
     val prochainRappel: LocalDateTime?,
+    val entrainement: Entrainement,
 )

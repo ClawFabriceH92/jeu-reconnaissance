@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -92,6 +93,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import java.time.LocalDate
 import fr.jeu.reconnaissance.visages.Ecran
 import fr.jeu.reconnaissance.visages.Etape
 import fr.jeu.reconnaissance.visages.Images
@@ -154,7 +158,7 @@ fun AppReconnaissance(vm: JeuViewModel) {
                     Text(
                         when (vm.ecran) {
                             Ecran.ACCUEIL -> "Reconnaissance"
-                            Ecran.JEU -> "Photo aléatoire"
+                            Ecran.JEU -> if (vm.seance) "Entraînement du jour" else "Photo aléatoire"
                             Ecran.GALERIE -> "Voir tout"
                             Ecran.FICHE -> if (vm.fiche == null) "Ajouter une personne" else "Modifier"
                             Ecran.PARAMETRES -> "Rappels et sauvegarde"
@@ -190,6 +194,28 @@ fun AppReconnaissance(vm: JeuViewModel) {
                 Ecran.GENRES -> EcranGenres(vm)
             }
         }
+    }
+
+    if (vm.objectifAtteint) {
+        val e = vm.entrainement
+        AlertDialog(
+            onDismissRequest = { vm.objectifAtteint = false },
+            title = { Text("Bravo, objectif du jour atteint !") },
+            text = {
+                Text(
+                    "${vm.parametres.minutesParJour} minutes d'entraînement aujourd'hui.\n" +
+                        "Bonnes réponses : ${e.reussites} / ${e.questions}\n" +
+                        "Série : ${e.serie(LocalDate.now())} jour(s) de suite."
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.objectifAtteint = false }) { Text("Continuer à jouer") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    vm.objectifAtteint = false
+                    vm.retour()
+                }) { Text("Terminer") }
+            },
+        )
     }
 
     DialogueMiseAJour(
@@ -355,7 +381,8 @@ private fun Accueil(vm: JeuViewModel) {
                 }
             }
         }
-        BoutonAccueil("Photo aléatoire", Icons.Filled.Shuffle, actif = total >= 2, principal = true, onClick = vm::jouer)
+        if (total >= 2) CarteEntrainement(vm)
+        BoutonAccueil("Photo aléatoire (libre)", Icons.Filled.Shuffle, actif = total >= 2, onClick = vm::jouer)
         BoutonAccueil("Voir tout", Icons.Filled.GridView, actif = total > 0, onClick = vm::ouvrirGalerie)
         BoutonAccueil("Ajouter une personne", Icons.Filled.PersonAdd) { vm.ouvrirFiche(null) }
         BoutonAccueil("Rappels et sauvegarde", Icons.Filled.Settings, onClick = vm::ouvrirParametres)
@@ -403,6 +430,63 @@ private fun Accueil(vm: JeuViewModel) {
 }
 
 @Composable
+private fun CarteEntrainement(vm: JeuViewModel) {
+    val context = LocalContext.current
+    val aujourdhui = LocalDate.now()
+    val e = vm.entrainement
+    val objectif = vm.parametres.minutesParJour
+    val secondes = e.secondesDu(aujourdhui)
+    val fait = e.faitLe(aujourdhui)
+    val serie = e.serie(aujourdhui)
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { accordee ->
+        if (!accordee) vm.message = "Notifications refusées : le rappel ne pourra pas s'afficher"
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Entraînement du jour : $objectif min", style = MaterialTheme.typography.titleMedium)
+            LinearProgressIndicator(
+                progress = { (secondes / (objectif * 60f)).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                buildString {
+                    append(if (fait) "Objectif atteint ✓" else "${secondes / 60} / $objectif min aujourd'hui")
+                    append(" · série : $serie jour(s)")
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = vm::commencerEntrainement, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Icon(Icons.Filled.Timer, contentDescription = null)
+                Spacer(Modifier.size(12.dp))
+                Text(
+                    when {
+                        fait -> "Rejouer"
+                        secondes > 0 -> "Continuer (reste ${(objectif * 60 - secondes + 59) / 60} min)"
+                        else -> "Commencer l'entraînement"
+                    }
+                )
+            }
+            if (vm.parametres.frequence == Frequence.AUCUNE) {
+                TextButton(onClick = {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    vm.activerRappelQuotidien()
+                    vm.message = "Rappel chaque jour à %02d:%02d (modifiable dans Rappels et sauvegarde)"
+                        .format(vm.parametres.heure, vm.parametres.minute)
+                }) { Text("Me le rappeler chaque jour par une notification") }
+            } else {
+                vm.prochainRappel?.let {
+                    Text("Prochain rappel : ${it.format(FORMAT_RAPPEL)}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BoutonAccueil(
     texte: String,
     icone: ImageVector,
@@ -438,6 +522,7 @@ private fun EcranJeu(vm: JeuViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (vm.seance) Chrono(vm)
         Text(
             "Niveau ${vm.progression.niveau} / ${Difficulte.NIVEAU_MAX} · série ${vm.progression.serie}",
             style = MaterialTheme.typography.labelLarge,
@@ -472,6 +557,46 @@ private fun EcranJeu(vm: JeuViewModel) {
                 Icon(Icons.Filled.Shuffle, contentDescription = null)
                 Spacer(Modifier.size(8.dp))
                 Text("Photo suivante")
+            }
+        }
+    }
+}
+
+/** Chrono de l'entraînement du jour : ne compte que si l'app est au premier plan et qu'on joue. */
+@Composable
+private fun Chrono(vm: JeuViewModel) {
+    val cycle = LocalLifecycleOwner.current.lifecycle
+    var enPause by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            if (cycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                vm.tic()
+                enPause = vm.enPause()
+            }
+        }
+    }
+    val objectif = vm.parametres.minutesParJour * 60
+    val joue = vm.entrainement.secondesDu(LocalDate.now())
+    val texte = if (joue < objectif) {
+        val reste = objectif - joue
+        "Reste %d:%02d".format(reste / 60, reste % 60)
+    } else {
+        "Objectif atteint ✓ · %d:%02d jouées".format(joue / 60, joue % 60)
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Timer, contentDescription = null)
+                Spacer(Modifier.size(8.dp))
+                Text(texte, style = MaterialTheme.typography.titleMedium)
+            }
+            LinearProgressIndicator(progress = { (joue.toFloat() / objectif).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            if (enPause) {
+                Text(
+                    "Chrono en pause : aucune réponse depuis ${vm.pauseApres} s.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
@@ -716,7 +841,7 @@ private fun EcranParametres(vm: JeuViewModel) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Rappel d'entraînement", style = MaterialTheme.typography.titleMedium)
+        Text("Entraînement quotidien et rappel", style = MaterialTheme.typography.titleMedium)
         Frequence.entries.forEach { f ->
             Row(
                 Modifier.fillMaxWidth().clickable { changer(p.copy(frequence = f)) },
@@ -737,6 +862,16 @@ private fun EcranParametres(vm: JeuViewModel) {
                 }
             }
         }
+        Text("Durée de l'entraînement du jour", style = MaterialTheme.typography.bodyMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(5, 10, 15, 20, 30).forEach { m ->
+                FilterChip(
+                    selected = p.minutesParJour == m,
+                    onClick = { vm.changerParametres(p.copy(minutesParJour = m)) },
+                    label = { Text("$m min") },
+                )
+            }
+        }
         if (p.frequence != Frequence.AUCUNE) {
             OutlinedButton(onClick = {
                 TimePickerDialog(context, { _, h, m -> changer(p.copy(heure = h, minute = m)) }, p.heure, p.minute, true).show()
@@ -748,7 +883,8 @@ private fun EcranParametres(vm: JeuViewModel) {
             }
             Text(
                 "Le rappel peut arriver avec quelques minutes de retard si le téléphone est en veille. " +
-                    "Toucher la notification lance directement une partie.",
+                    "Il ne s'affiche pas si l'entraînement du jour est déjà fait. " +
+                    "Toucher la notification lance directement l'entraînement.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

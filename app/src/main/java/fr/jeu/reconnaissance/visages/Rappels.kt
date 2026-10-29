@@ -15,6 +15,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import fr.jeu.reconnaissance.visages.core.Depot
 import fr.jeu.reconnaissance.visages.core.Parametres
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -40,7 +41,7 @@ object Rappels {
         return prochain
     }
 
-    fun notifier(context: Context) {
+    fun notifier(context: Context, titre: String, texte: String) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
@@ -58,8 +59,9 @@ object Rappels {
         )
         val notification = NotificationCompat.Builder(context, CANAL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("C'est l'heure de s'entraîner")
-            .setContentText("Quelques photos pour garder les visages en mémoire.")
+            .setContentTitle(titre)
+            .setContentText(texte)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(texte))
             .setContentIntent(ouvrir)
             .setAutoCancel(true)
             .build()
@@ -73,9 +75,26 @@ class RappelReceiver : BroadcastReceiver() {
         val resultat = goAsync()
         Thread {
             try {
-                val parametres = Depot(context.filesDir).parametres()
+                val depot = Depot(context.filesDir)
+                val parametres = depot.parametres()
                 if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) {
-                    Rappels.notifier(context)
+                    val aujourdhui = LocalDate.now()
+                    val e = depot.entrainement()
+                    // Objectif déjà atteint aujourd'hui : pas de rappel inutile.
+                    if (!e.faitLe(aujourdhui)) {
+                        val objectif = parametres.minutesParJour
+                        val reste = ((objectif * 60 - e.secondesDu(aujourdhui)) + 59) / 60
+                        val serie = e.serie(aujourdhui)
+                        Rappels.notifier(
+                            context,
+                            "Entraînement du jour : $objectif min",
+                            buildString {
+                                append(if (reste < objectif) "Encore $reste min pour aujourd'hui." else "$objectif minutes de visages à reconnaître.")
+                                if (serie > 0) append(" Série en cours : $serie jour(s), ne la cassez pas !")
+                                append(" Touchez pour commencer.")
+                            },
+                        )
+                    }
                 }
                 Rappels.planifier(context, parametres)
             } finally {
