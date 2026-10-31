@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -549,21 +551,31 @@ private fun EcranJeu(vm: JeuViewModel) {
         return
     }
     val q = partie.question
+    // Aucun défilement ici : la photo prend la place qui reste et les questions
+    // (prénom, puis nom) comme le bouton « Photo suivante » restent visibles.
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (vm.seance) Chrono(vm)
         Text(
             "Niveau ${vm.progression.niveau} / ${Difficulte.NIVEAU_MAX} · série ${vm.progression.serie}",
             style = MaterialTheme.typography.labelLarge,
         )
-        Photo(
-            vm.fichierPhoto(q.personne),
-            Modifier.widthIn(max = 320.dp).fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(16.dp)),
-            taille = 900,
-        )
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Le plus grand cadre 3:4 qui tienne dans l'espace laissé par les
+            // questions : la photo rétrécit plutôt que de les pousser hors écran.
+            val largeur = if (maxHeight.value.isFinite()) minOf(maxWidth, maxHeight * 3f / 4f) else maxWidth
+            Photo(
+                vm.fichierPhoto(q.personne),
+                Modifier.width(largeur).height(largeur * 4f / 3f).clip(RoundedCornerShape(16.dp)),
+                taille = 900,
+            )
+        }
         if (q.choixPrenoms.isNotEmpty()) {
             Choix("Prénom ?", q.choixPrenoms, q.personne.prenom, partie.prenomChoisi, vm::repondre)
         }
@@ -651,13 +663,13 @@ private fun Choix(titre: String, options: List<String>, correct: String, choisi:
                     Button(
                         onClick = {},
                         colors = ButtonDefaults.buttonColors(containerColor = couleur, contentColor = MaterialTheme.colorScheme.onPrimary),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     ) { Text(option) }
                 } else {
                     OutlinedButton(
                         onClick = { repondre(option) },
                         enabled = choisi == null,
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     ) { Text(option) }
                 }
             }
